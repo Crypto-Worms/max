@@ -1,0 +1,13 @@
+{
+  "name": "samara-gas-bot",
+  "version": "1.0.0",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "node --watch bot.js"
+  },
+  "dependencies": {
+    "@maxhub/max-bot-api": "^1.0.0",
+    "dotenv": "^16.0.0"
+  }
+}
