@@ -1,95 +1,221 @@
-// bot.js - безопасная версия с переменными окружения
-
-// Аналог: from dotenv import load_dotenv
 require('dotenv').config();
+const fetch = require('node-fetch');
 
-// Аналог: import { Bot, Keyboard } from ...
-const { Bot, Keyboard } = require('@maxhub/max-bot-api');
-
-// Аналог: TOKEN = os.getenv('BOT_TOKEN')
 const BOT_TOKEN = process.env.BOT_TOKEN;
+const MAX_API_URL = 'https://api.max.ru/bot/v1';
 
-// Проверяем токен
 if (!BOT_TOKEN) {
-  console.error('❌ ОШИБКА: Токен бота не найден!');
-  console.log('\n📝 Установите переменную окружения BOT_TOKEN:');
-  console.log('1. На BotHost: добавьте в Environment Variables');
-  console.log('2. Локально: создайте файл .env с BOT_TOKEN=ваш_токен');
-  console.log('\n💡 Получите токен у @BotFather в MAX');
+  console.error('❌ ОШИБКА: Токен не найден');
   process.exit(1);
 }
 
-console.log('✅ Токен получен из переменных окружения');
-console.log('🚀 Запускаем бота...');
-
-// Создаем экземпляр бота (аналог: bot = Bot(token=TOKEN))
-const bot = new Bot(BOT_TOKEN);
-
-// === ОСТАЛЬНОЙ КОД БОТА БЕЗ ИЗМЕНЕНИЙ ===
-
-// Обработчик команды /start
-bot.command('start', async (ctx) => {
-  console.log('🔹 Пользователь вызвал /start');
+// Функция для отправки запросов к API MAX
+async function callMaxApi(method, params = {}) {
+  const url = `${MAX_API_URL}/${method}`;
   
-  const keyboard = Keyboard.inlineKeyboard([
-    [
-      Keyboard.button.message('📞 Контакты', 'Контакты'),
-      Keyboard.button.link('💳 Заплатить за газ', 'https://samararegiongaz.ru/consumer/online/')
-    ]
-  ]);
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${BOT_TOKEN}`
+      },
+      body: JSON.stringify(params)
+    });
+    
+    return await response.json();
+  } catch (error) {
+    console.error('❌ Ошибка API:', error);
+    return null;
+  }
+}
 
-  await ctx.reply(
-    `Добро пожаловать в бот ООО "Газпром межрегионгаз Самара"!\n\n` +
-    `Выберите нужный раздел:`,
-    { attachments: [keyboard] }
-  );
+// Простой вебхук-сервер для получения обновлений
+const http = require('http');
+
+const server = http.createServer(async (req, res) => {
+  if (req.method === 'POST' && req.url === '/webhook') {
+    let body = '';
+    
+    req.on('data', chunk => {
+      body += chunk.toString();
+    });
+    
+    req.on('end', async () => {
+      try {
+        const update = JSON.parse(body);
+        await handleUpdate(update);
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (error) {
+        console.error('❌ Ошибка обработки вебхука:', error);
+        res.writeHead(500);
+        res.end();
+      }
+    });
+  } else {
+    res.writeHead(404);
+    res.end();
+  }
 });
 
-// Обработчик текста "Контакты"
-bot.hears('Контакты', async (ctx) => {
-  const contacts = `📞 **Актуальные контакты:**\n\n` +
-    `• Телефон: 8 846 212-32-12\n` +
-    `• Горячая линия: 8 800 201-04-04\n` +
-    `• Адрес: ул. Ново-Садовая, 307А\n` +
-    `• Email: srg@samgas.ru`;
+// Обработка обновлений
+async function handleUpdate(update) {
+  console.log('📨 Получено обновление:', JSON.stringify(update, null, 2));
+  
+  // Проверяем тип обновления
+  if (update.message && update.message.text) {
+    const message = update.message;
+    const chatId = message.chat.id;
+    const text = message.text;
+    
+    // Команда /start
+    if (text === '/start' || text === '/start@' + (process.env.BOT_USERNAME || '')) {
+      const keyboard = {
+        inline_keyboard: [
+          [
+            {
+              text: '📞 Контакты',
+              callback_data: 'contacts'
+            },
+            {
+              text: '💳 Заплатить за газ',
+              url: 'https://samararegiongaz.ru/consumer/online/'
+            }
+          ]
+        ]
+      };
+      
+      await sendMessage(chatId, 
+        'Добро пожаловать в бот ООО "Газпром межрегионгаз Самара"!\n\nВыберите нужный раздел:',
+        keyboard
+      );
+    }
+    
+    // Текст "Контакты"
+    else if (text === 'Контакты') {
+      const contacts = `📞 **Актуальные контакты:**\n\n` +
+        `• Телефон: 8 846 212-32-12\n` +
+        `• Горячая линия: 8 800 201-04-04\n` +
+        `• Адрес: ул. Ново-Садовая, 307А\n` +
+        `• Email: srg@samgas.ru`;
+      
+      const backKeyboard = {
+        inline_keyboard: [
+          [{ text: '🔙 Назад', callback_data: 'back' }]
+        ]
+      };
+      
+      await sendMessage(chatId, contacts, backKeyboard, 'markdown');
+    }
+    
+    // Текст "Назад"
+    else if (text === 'Назад') {
+      const keyboard = {
+        inline_keyboard: [
+          [
+            {
+              text: '📞 Контакты',
+              callback_data: 'contacts'
+            },
+            {
+              text: '💳 Заплатить за газ',
+              url: 'https://samararegiongaz.ru/consumer/online/'
+            }
+          ]
+        ]
+      };
+      
+      await sendMessage(chatId, 
+        'Добро пожаловать в бот ООО "Газпром межрегионгаз Самара"!\n\nВыберите нужный раздел:',
+        keyboard
+      );
+    }
+  }
+  
+  // Обработка callback-кнопок
+  else if (update.callback_query) {
+    const callback = update.callback_query;
+    const chatId = callback.message.chat.id;
+    const data = callback.data;
+    
+    if (data === 'contacts') {
+      const contacts = `📞 **Актуальные контакты:**\n\n` +
+        `• Телефон: 8 846 212-32-12\n` +
+        `• Горячая линия: 8 800 201-04-04\n` +
+        `• Адрес: ул. Ново-Садовая, 307А\n` +
+        `• Email: srg@samgas.ru`;
+      
+      const backKeyboard = {
+        inline_keyboard: [
+          [{ text: '🔙 Назад', callback_data: 'back' }]
+        ]
+      };
+      
+      await sendMessage(chatId, contacts, backKeyboard, 'markdown');
+      
+      // Отвечаем на callback
+      await callMaxApi('answerCallbackQuery', {
+        callback_query_id: callback.id
+      });
+    }
+    
+    else if (data === 'back') {
+      const keyboard = {
+        inline_keyboard: [
+          [
+            {
+              text: '📞 Контакты',
+              callback_data: 'contacts'
+            },
+            {
+              text: '💳 Заплатить за газ',
+              url: 'https://samararegiongaz.ru/consumer/online/'
+            }
+          ]
+        ]
+      };
+      
+      await sendMessage(chatId, 
+        'Добро пожаловать в бот ООО "Газпром межрегионгаз Самара"!\n\nВыберите нужный раздел:',
+        keyboard
+      );
+      
+      await callMaxApi('answerCallbackQuery', {
+        callback_query_id: callback.id
+      });
+    }
+  }
+}
 
-  const backKeyboard = Keyboard.inlineKeyboard([
-    [Keyboard.button.message('🔙 Назад', 'Назад')]
-  ]);
+// Функция отправки сообщения
+async function sendMessage(chatId, text, replyMarkup = null, parseMode = null) {
+  const params = {
+    chat_id: chatId,
+    text: text
+  };
+  
+  if (replyMarkup) {
+    params.reply_markup = replyMarkup;
+  }
+  
+  if (parseMode) {
+    params.parse_mode = parseMode;
+  }
+  
+  return await callMaxApi('sendMessage', params);
+}
 
-  await ctx.reply(contacts, { 
-    format: 'markdown',
-    attachments: [backKeyboard]
-  });
+// Запуск сервера
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`🚀 Бот запущен на порту ${PORT}`);
+  console.log(`🌐 Вебхук: http://ваш_домен:${PORT}/webhook`);
+  
+  // Регистрируем вебхук (нужно будет настроить в панели MAX)
+  console.log('\n📝 Для настройки:');
+  console.log('1. В настройках бота MAX укажите вебхук:');
+  console.log(`   https://ваш_домен.ботхост/${BOT_TOKEN}/webhook`);
+  console.log('2. Или используйте long polling');
 });
-
-// Обработчик текста "Назад"
-bot.hears('Назад', async (ctx) => {
-  const keyboard = Keyboard.inlineKeyboard([
-    [
-      Keyboard.button.message('📞 Контакты', 'Контакты'),
-      Keyboard.button.link('💳 Заплатить за газ', 'https://samararegiongaz.ru/consumer/online/')
-    ]
-  ]);
-
-  await ctx.reply(
-    `Добро пожаловать в бот ООО "Газпром межрегионгаз Самара"!\n\n` +
-    `Выберите нужный раздел:`,
-    { attachments: [keyboard] }
-  );
-});
-
-// Обработчик команды /help
-bot.command('help', async (ctx) => {
-  await ctx.reply(
-    `Доступные команды:\n` +
-    `/start - Начать работу с ботом\n` +
-    `/help - Помощь\n\n` +
-    `Используйте кнопки для навигации.`
-  );
-});
-
-// Запускаем бота
-bot.start();
-
-console.log('🤖 Бот успешно запущен и ожидает сообщений...');
